@@ -2,6 +2,9 @@
 
 ## 最新排障（2026-11-03，优先于下方历史状态）
 
+- 修复研究弹窗打字数秒后丢焦点：Modal 的useEffect依赖每次渲染变化的onClose，任务详情1.6秒/工作台4秒轮询导致反复focus容器。现在仅挂载时初始化焦点，layout effect更新关闭回调ref，保留autoFocus及StrictMode回放时初始焦点，卸载恢复触发按钮。
+- 回归：frontend/src/test/modal-focus.test.tsx覆盖父刷新下主题/要求焦点与选区、最新Esc回调、Tab及焦点恢复；前端5项测试、build通过。真实Edge frontend/e2e/modal-focus.spec.ts 1 passed (25.7s)，拦截测试API但运行真实App轮询、持续打字和选区保持，无用户数据变更。此次修改尚未提交/推送。
+
 - GitHub：用户授权推送至 https://github.com/xiaomuxin406/multi-file.git，origin已配置；用户已完成GCM登录，API确认账号xiaomuxin406有push权限。远端初始为空、默认分支main，准备首次提交至main；恢复时先核对git status/log/远端状态。当前仓库使用GitHub账号名及164153645+xiaomuxin406@users.noreply.github.com作为提交身份，未改全局配置。
 - 首次提交包含78文件，完成敏感信息扫描，.env/data/日志忽略。已补回无密钥.env.example。推送前重新验证后端26项、前端3项及build通过。gh CLI未安装，使用Git/GCM；不要输出凭据。
 

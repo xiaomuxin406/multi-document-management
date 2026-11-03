@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import {
   X,
   LoaderCircle,
@@ -73,12 +73,24 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef(document.activeElement as HTMLElement | null);
+  const initialFocus = useRef<HTMLElement | null>(null);
+  const closeHandler = useRef(onClose);
+  useLayoutEffect(() => {
+    closeHandler.current = onClose;
+  }, [onClose]);
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = previousFocus.current;
     const element = ref.current;
-    element?.focus();
+    // Preserve a child's autoFocus; polling must never reset editing focus.
+    if (element?.contains(document.activeElement)) {
+      initialFocus.current = document.activeElement as HTMLElement;
+    } else {
+      // StrictMode replays setup after cleanup restores the opener's focus.
+      (initialFocus.current || element)?.focus();
+    }
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") closeHandler.current();
       if (e.key === "Tab" && element) {
         const items = Array.from(
           element.querySelectorAll<HTMLElement>(
@@ -104,7 +116,7 @@ export function Modal({
       document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div
       className="modal-backdrop"

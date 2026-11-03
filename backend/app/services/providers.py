@@ -20,9 +20,19 @@ class SearchProvider(Protocol):
 
 
 class OpenAICompatible:
-    def __init__(self, base_url, model, key, transport=None):
+    def __init__(
+        self,
+        base_url,
+        model,
+        key,
+        transport=None,
+        *,
+        timeout_seconds=90,
+        enable_thinking=None,
+    ):
         self.base_url, self.model, self.key = base_url.rstrip("/"), model, key
         self.transport = transport
+        self.timeout_seconds, self.enable_thinking = timeout_seconds, enable_thinking
 
     def complete(self, system, payload, json_output=False):
         body = {
@@ -36,9 +46,11 @@ class OpenAICompatible:
         }
         if json_output:
             body["response_format"] = {"type": "json_object"}
+        if self.enable_thinking is not None:
+            body["enable_thinking"] = self.enable_thinking
         try:
             with httpx.Client(
-                timeout=httpx.Timeout(90, connect=15),
+                timeout=httpx.Timeout(self.timeout_seconds, connect=15),
                 transport=self.transport,
                 follow_redirects=False,
             ) as client:
@@ -48,7 +60,12 @@ class OpenAICompatible:
                     json=body,
                 )
                 response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
+                choice = response.json()["choices"][0]
+                if choice.get("finish_reason") == "length":
+                    raise ProviderError(
+                        "模型达到输出上限，结果可能被截断；请关闭供应商支持的思考模式或更换适合该任务的模型后重试"
+                    )
+                content = choice["message"]["content"]
                 if not isinstance(content, str) or not content.strip():
                     raise ValueError("empty completion")
                 return content
@@ -56,9 +73,18 @@ class OpenAICompatible:
             raise ProviderError(
                 f"模型 API 返回 HTTP {error.response.status_code}，请检查模型名称、地址、额度和密钥"
             ) from None
-        except (httpx.HTTPError, ValueError, KeyError, IndexError):
+        except httpx.TimeoutException:
             raise ProviderError(
-                "模型调用失败或响应格式无效，请检查兼容 OpenAI 的 API 配置"
+                f"模型请求超时（读取等待上限 {self.timeout_seconds:g} 秒）；"
+                "可在 .env 调整 LLM_TIMEOUT_SECONDS，或关闭供应商支持的思考模式、切换更快模型后重试"
+            ) from None
+        except httpx.HTTPError:
+            raise ProviderError(
+                "模型网络连接失败，请检查网络、代理和供应商服务后重试"
+            ) from None
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+            raise ProviderError(
+                "模型响应格式无效或正文为空，请检查接口是否返回兼容 OpenAI 的 choices/message/content"
             ) from None
 
 

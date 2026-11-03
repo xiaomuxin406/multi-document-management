@@ -19,7 +19,11 @@ def submit(request, row, db):
     settings = request.app.state.settings
     llm = (
         OpenAICompatible(
-            config["llm_base_url"], config["llm_model"], settings.llm_api_key
+            config["llm_base_url"],
+            config["llm_model"],
+            settings.llm_api_key,
+            timeout_seconds=settings.llm_timeout_seconds,
+            enable_thinking=settings.llm_enable_thinking,
         )
         if settings.llm_api_key
         else None

@@ -15,6 +15,7 @@ def test_openai_compatible_sends_model_and_evidence_and_extracts_content():
         assert request.url.path == "/v1/chat/completions"
         assert request.headers["authorization"] == "Bearer test-secret"
         assert body["model"] == "custom-model"
+        assert "enable_thinking" not in body
         assert "[E1]" in body["messages"][1]["content"]
         return httpx.Response(
             200,
@@ -44,6 +45,68 @@ def test_provider_error_does_not_expose_remote_body_or_credentials():
         provider.complete("system", {})
     assert "401" in str(error.value)
     assert "private-secret" not in str(error.value)
+
+
+def test_optional_thinking_flag_and_read_timeout_reach_provider():
+    def handle(request):
+        assert json.loads(request.content)["enable_thinking"] is False
+        assert request.extensions["timeout"]["read"] == 180
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    provider = OpenAICompatible(
+        "https://model.example/v1",
+        "model",
+        "secret",
+        httpx.MockTransport(handle),
+        timeout_seconds=180,
+        enable_thinking=False,
+    )
+    assert provider.complete("system", {}, True) == "{}"
+
+
+def test_model_read_timeout_is_distinct_from_invalid_response():
+    def handle(request):
+        raise httpx.ReadTimeout("private-secret", request=request)
+
+    provider = OpenAICompatible(
+        "https://model.example/v1",
+        "model",
+        "private-secret",
+        httpx.MockTransport(handle),
+    )
+    with pytest.raises(ProviderError) as error:
+        provider.complete("system", {})
+    assert "超时" in str(error.value)
+    assert "LLM_TIMEOUT_SECONDS" in str(error.value)
+    assert "private-secret" not in str(error.value)
+
+
+def test_model_token_exhaustion_is_reported_before_json_parsing():
+    provider = OpenAICompatible(
+        "https://model.example/v1",
+        "model",
+        "secret",
+        httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "finish_reason": "length",
+                            "message": {
+                                "content": "",
+                                "reasoning_content": "private reasoning",
+                            },
+                        }
+                    ]
+                },
+            )
+        ),
+    )
+    with pytest.raises(ProviderError) as error:
+        provider.complete("system", {}, True)
+    assert "输出上限" in str(error.value)
+    assert "private reasoning" not in str(error.value)
 
 
 def test_tavily_marks_results_as_search_snippets_and_filters_unsafe_urls():
